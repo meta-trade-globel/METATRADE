@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MetaTrade | Master Admin Panel</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+</head>
+<body class="bg-[#05070a] text-gray-200 min-h-screen p-4 md:p-8">
+
+    <!-- Secret Login Key Screen -->
+    <div id="adminAuth" class="fixed inset-0 bg-[#05070a] z-50 flex items-center justify-center p-4">
+        <div class="bg-[#111827] border border-white/5 p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl">
+            <h1 class="text-2xl font-black text-yellow-500 mb-6 uppercase tracking-widest">Master Admin</h1>
+            <input type="password" id="secretKey" placeholder="Enter Admin Secret Key" class="w-full bg-[#1a1f29] border border-[#2d3748] p-4 rounded-xl text-center text-white outline-none mb-4">
+            <button onclick="checkAdminKey()" class="w-full py-4 bg-yellow-500 text-black font-black rounded-xl uppercase tracking-wider">Access Panel</button>
+        </div>
+    </div>
+
+    <!-- Main Admin Dashboard -->
+    <div class="max-w-6xl mx-auto">
+        <header class="flex justify-between items-center mb-8 bg-[#111827] border border-white/5 p-6 rounded-2xl">
+            <div>
+                <h1 class="text-2xl font-black text-white uppercase">MetaTrade Master Terminal</h1>
+                <p class="text-xs text-yellow-500 font-bold uppercase tracking-wider">Live Database Control</p>
+            </div>
+            <div class="text-right">
+                <span class="bg-green-500/10 text-green-500 border border-green-500/20 text-[10px] font-bold px-3 py-1 rounded-full uppercase">Server Online</span>
+            </div>
+        </header>
+
+        <!-- Users Management Table -->
+        <div class="bg-[#111827] border border-white/5 rounded-2xl overflow-hidden shadow-xl">
+            <div class="p-6 border-b border-white/5">
+                <h2 class="text-lg font-bold text-white">Registered Users List</h2>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-black/20 text-gray-500 text-[11px] font-black uppercase tracking-wider border-b border-white/5">
+                            <th class="p-4">Email</th>
+                            <th class="p-4">Balance ($)</th>
+                            <th class="p-4">Trade Mode</th>
+                            <th class="p-4">Status</th>
+                            <th class="p-4 text-center">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersTableBody" class="divide-y divide-white/5 text-sm">
+                        <!-- Live Data Shuru me Loading... dikhayega -->
+                        <tr>
+                            <td colspan="5" class="p-8 text-center text-gray-500 font-bold">Connecting to live database...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Same Database Config jo terminal me hai
+        const firebaseConfig = { apiKey: "AIzaSyAySRA1YSpTpmC8WjnKmDhnNMHkEmkeP50", authDomain: "waqas-47f30.firebaseapp.com", projectId: "waqas-47f30", storageBucket: "waqas-47f30.appspot.com", messagingSenderId: "374104279093", appId: "1:374104279093:web:6e1844b60456c700940364" };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        // Aap apna Admin Key password yahan change kar sakte hain (Abhi password 'admin123' hai)
+        function checkAdminKey() {
+            const key = document.getElementById('secretKey').value;
+            if(key === "admin123") {
+                document.getElementById('adminAuth').style.display = 'none';
+                listenToUsers();
+            } else {
+                alert("Incorrect Master Key!");
+            }
+        }
+
+        // Real-time Database read karna
+        function listenToUsers() {
+            db.collection('users').onSnapshot(snapshot => {
+                const tbody = document.getElementById('usersTableBody');
+                tbody.innerHTML = '';
+                
+                if(snapshot.empty) {
+                    tbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-gray-500">No users registered yet.</td></tr>`;
+                    return;
+                }
+
+                snapshot.forEach(doc => {
+                    const user = doc.data();
+                    const uid = doc.id;
+                    const isBlocked = user.status === 'blocked';
+                    
+                    tbody.innerHTML += `
+                        <tr class="hover:bg-white/[0.02] transition">
+                            <td class="p-4 font-bold text-white">${user.email}</td>
+                            <td class="p-4">
+                                <div class="flex items-center gap-2">
+                                    <span class="font-black text-yellow-500">$${(user.balance || 0).toFixed(2)}</span>
+                                    <button onclick="adjustBalance('${uid}', ${user.balance || 0})" class="text-[10px] bg-white/5 hover:bg-white/10 px-2 py-1 rounded border border-white/10 font-bold">Edit</button>
+                                </div>
+                            </td>
+                            <td class="p-4">
+                                <select onchange="setTradeMode('${uid}', this.value)" class="bg-[#1a1f29] border border-white/10 rounded-lg p-1.5 text-xs font-bold outline-none text-white">
+                                    <option value="normal" ${user.tradeMode === 'normal' ? 'selected' : ''}>Normal (50/50)</option>
+                                    <option value="profit" ${user.tradeMode === 'profit' ? 'selected' : ''} class="text-green-500">Force Win</option>
+                                    <option value="loss" ${user.tradeMode === 'loss' ? 'selected' : ''} class="text-red-500">Force Loss</option>
+                                </select>
+                            </td>
+                            <td class="p-4">
+                                <span class="${isBlocked ? 'text-red-500 bg-red-500/10 border-red-500/20' : 'text-green-500 bg-green-500/10 border-green-500/20'} text-[10px] font-black uppercase px-2.5 py-1 border rounded-md">
+                                    ${isBlocked ? 'Blocked' : 'Active'}
+                                </span>
+                            </td>
+                            <td class="p-4 text-center">
+                                <button onclick="toggleBlock('${uid}', ${isBlocked})" class="${isBlocked ? 'bg-green-600' : 'bg-red-600'} text-white font-bold text-xs px-4 py-2 rounded-xl uppercase tracking-wider transition">
+                                    ${isBlocked ? 'Unblock' : 'Block Account'}
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            });
+        }
+
+        // 1. Balance Controller Function
+        async function adjustBalance(uid, currentBalance) {
+            const newAmt = prompt("Enter new absolute balance for this user ($):", currentBalance);
+            if(newAmt === null || isNaN(newAmt)) return;
+            await db.collection('users').doc(uid).update({ balance: parseFloat(newAmt) });
+            alert("Balance Updated!");
+        }
+
+        // 2. Force Win/Loss Outcome Function
+        async function setTradeMode(uid, mode) {
+            await db.collection('users').doc(uid).update({ tradeMode: mode });
+        }
+
+        // 3. Block/Unblock Account Function
+        async function toggleBlock(uid, isBlocked) {
+            const status = isBlocked ? 'active' : 'blocked';
+            if(confirm(`Are you sure you want to ${isBlocked ? 'Unblock' : 'Block'} this user?`)) {
+                await db.collection('users').doc(uid).update({ status: status });
+            }
+        }
+    </script>
+</body>
+</html>
