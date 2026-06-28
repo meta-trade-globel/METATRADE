@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,12 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MetaTrade | Master Admin Panel</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 </head>
 <body class="bg-[#05070a] text-gray-200 min-h-screen p-4 md:p-8">
 
-    <!-- Secret Login Key Screen -->
     <div id="adminAuth" class="fixed inset-0 bg-[#05070a] z-50 flex items-center justify-center p-4">
         <div class="bg-[#111827] border border-white/5 p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl">
             <h1 class="text-2xl font-black text-yellow-500 mb-6 uppercase tracking-widest">Master Admin</h1>
@@ -20,7 +18,6 @@
         </div>
     </div>
 
-    <!-- Main Admin Dashboard -->
     <div class="max-w-6xl mx-auto">
         <header class="flex justify-between items-center mb-8 bg-[#111827] border border-white/5 p-6 rounded-2xl">
             <div>
@@ -32,7 +29,32 @@
             </div>
         </header>
 
-        <!-- Users Management Table -->
+        <div class="bg-[#111827] border border-white/5 rounded-2xl overflow-hidden shadow-xl mb-8">
+            <div class="p-6 border-b border-white/5 bg-yellow-500/5">
+                <h2 class="text-lg font-bold text-yellow-500 uppercase tracking-wide">Pending Transactions Requests</h2>
+                <p class="text-xs text-gray-400">Approve or Reject user deposits and withdrawals live</p>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-black/20 text-gray-500 text-[11px] font-black uppercase tracking-wider border-b border-white/5">
+                            <th class="p-4">Time</th>
+                            <th class="p-4">User Email</th>
+                            <th class="p-4">Type</th>
+                            <th class="p-4">Amount ($)</th>
+                            <th class="p-4">Details (PKR/TXID)</th>
+                            <th class="p-4 text-center">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="txnTableBody" class="divide-y divide-white/5 text-sm">
+                        <tr>
+                            <td colspan="6" class="p-6 text-center text-gray-500 font-bold">Waiting for requests...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
         <div class="bg-[#111827] border border-white/5 rounded-2xl overflow-hidden shadow-xl">
             <div class="p-6 border-b border-white/5">
                 <h2 class="text-lg font-bold text-white">Registered Users List</h2>
@@ -59,10 +81,11 @@
     </div>
 
     <script>
-        // UPDATED: Aapka naya configuration code yahan lag chuka hai
+        // Realtime Database Configuration
         const firebaseConfig = {
             apiKey: "AIzaSyBTpV52GenXmth0Kh3JtdDMo7pULp2pTrI",
             authDomain: "meta-trade-globel.firebaseapp.com",
+            databaseURL: "https://metatrade-11b1f-default-rtdb.firebaseio.com",
             projectId: "meta-trade-globel",
             storageBucket: "meta-trade-globel.firebasestorage.app",
             messagingSenderId: "1087236988664",
@@ -70,7 +93,7 @@
         };
         
         firebase.initializeApp(firebaseConfig);
-        const db = firebase.firestore();
+        const database = firebase.database();
 
         // Admin Secret Key check
         function checkAdminKey() {
@@ -78,25 +101,103 @@
             if(key === "admin123") {
                 document.getElementById('adminAuth').style.display = 'none';
                 listenToUsers();
+                listenToTransactions();
             } else {
                 alert("Incorrect Master Key!");
             }
         }
 
-        // Live users listen karna Firestore se
+        // Live transactions listen karna Realtime Database se
+        function listenToTransactions() {
+            database.ref('transactions').on('value', snapshot => {
+                const tbody = document.getElementById('txnTableBody');
+                tbody.innerHTML = '';
+                const data = snapshot.val();
+
+                if(!data) {
+                    tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-gray-500">No pending requests found.</td></tr>`;
+                    return;
+                }
+
+                let hasPending = false;
+                Object.keys(data).forEach(key => {
+                    const txn = data[key];
+                    if(txn.status === 'Pending') {
+                        hasPending = true;
+                        const details = txn.type === 'Deposit' ? 
+                            `Amt: ${txn.pkrAmount} PKR <br><span class="text-[11px] text-gray-400">Name: ${txn.accountName} | TXID: ${txn.txid}</span>` : 
+                            `Amt: ${txn.pkrAmount} PKR (Direct withdrawal request)`;
+
+                        tbody.innerHTML += `
+                            <tr class="hover:bg-white/[0.02] transition">
+                                <td class="p-4 text-xs text-gray-400">${txn.timestamp || ''}</td>
+                                <td class="p-4 font-bold text-white">${txn.user}</td>
+                                <td class="p-4"><span class="font-bold ${txn.type === 'Deposit' ? 'text-green-400' : 'text-red-400'}">${txn.type}</span></td>
+                                <td class="p-4 font-black text-yellow-500">$${parseFloat(txn.amount).toFixed(2)}</td>
+                                <td class="p-4 text-xs">${details}</td>
+                                <td class="p-4 text-center flex justify-center gap-2">
+                                    <button onclick="processTxn('${key}', 'Approved')" class="bg-green-600 hover:bg-green-700 text-white font-bold text-[11px] px-3 py-1.5 rounded-lg uppercase tracking-wider transition">Approve</button>
+                                    <button onclick="processTxn('${key}', 'Rejected')" class="bg-red-600 hover:bg-red-700 text-white font-bold text-[11px] px-3 py-1.5 rounded-lg uppercase tracking-wider transition">Reject</button>
+                                </td>
+                            </tr>
+                        `;
+                    }
+                });
+
+                if(!hasPending) {
+                    tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-gray-500">No pending requests found.</td></tr>`;
+                }
+            });
+        }
+
+        // Action Function: Request Approve ya Reject karne ke liye
+        async function processTxn(txnId, action) {
+            if(!confirm(`Are you sure you want to ${action} this request?`)) return;
+
+            // Get transaction snapshot
+            const snapshot = await database.ref('transactions/' + txnId).once('value');
+            const txn = snapshot.val();
+            if(!txn) return alert("Request not found!");
+
+            const userRef = database.ref('users/' + txn.uid);
+            const userSnapshot = await userRef.once('value');
+            const user = userSnapshot.val();
+            const currentBalance = (user && user.balance) ? parseFloat(user.balance) : 0;
+            const txnAmount = parseFloat(txn.amount);
+
+            if(action === 'Approved') {
+                if(txn.type === 'Deposit') {
+                    // Update user balance for approved deposit
+                    await userRef.update({ balance: currentBalance + txnAmount });
+                } else if(txn.type === 'Withdraw') {
+                    // Update user balance for approved withdrawal
+                    if(currentBalance < txnAmount) {
+                        alert("User has insufficient balance to complete this withdrawal!");
+                        return;
+                    }
+                    await userRef.update({ balance: currentBalance - txnAmount });
+                }
+            }
+
+            // Update transaction status so it leaves the pending list
+            await database.ref('transactions/' + txnId).update({ status: action });
+            alert(`Request successfully ${action}!`);
+        }
+
+        // Live users listen karna Realtime Database se
         function listenToUsers() {
-            db.collection('users').onSnapshot(snapshot => {
+            database.ref('users').on('value', snapshot => {
                 const tbody = document.getElementById('usersTableBody');
                 tbody.innerHTML = '';
+                const data = snapshot.val();
                 
-                if(snapshot.empty) {
+                if(!data) {
                     tbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-gray-500">No users registered yet.</td></tr>`;
                     return;
                 }
 
-                snapshot.forEach(doc => {
-                    const user = doc.data();
-                    const uid = doc.id;
+                Object.keys(data).forEach(uid => {
+                    const user = data[uid];
                     const isBlocked = user.status === 'blocked';
                     
                     tbody.innerHTML += `
@@ -121,17 +222,13 @@
                                 </span>
                             </td>
                             <td class="p-4 text-center">
-                                <button onclick="toggleBlock('${uid}', ${isBlocked})" class="${isBlocked ? 'bg-green-600' : 'bg-red-600'} text-white font-bold text-xs px-4 py-2 rounded-xl uppercase tracking-wider transition">
+                                <button onclick="toggleBlock('${uid}', '${user.status || 'active'}')" class="${isBlocked ? 'bg-green-600' : 'bg-red-600'} text-white font-bold text-xs px-4 py-2 rounded-xl uppercase tracking-wider transition">
                                     ${isBlocked ? 'Unblock' : 'Block Account'}
                                 </button>
                             </td>
                         </tr>
                     `;
                 });
-            }, error => {
-                console.error("Error fetching data: ", error);
-                const tbody = document.getElementById('usersTableBody');
-                tbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-red-500 font-bold">Database Error: Please check your Firestore Database rules!</td></tr>`;
             });
         }
 
@@ -139,20 +236,20 @@
         async function adjustBalance(uid, currentBalance) {
             const newAmt = prompt("Enter new absolute balance for this user ($):", currentBalance);
             if(newAmt === null || isNaN(newAmt)) return;
-            await db.collection('users').doc(uid).update({ balance: parseFloat(newAmt) });
+            await database.ref('users/' + uid).update({ balance: parseFloat(newAmt) });
             alert("Balance Updated!");
         }
 
         // 2. Trade Mode Control (Win/Loss)
         async function setTradeMode(uid, mode) {
-            await db.collection('users').doc(uid).update({ tradeMode: mode });
+            await database.ref('users/' + uid).update({ tradeMode: mode });
         }
 
         // 3. Block/Unblock Account
-        async function toggleBlock(uid, isBlocked) {
-            const status = isBlocked ? 'active' : 'blocked';
-            if(confirm(`Are you sure you want to ${isBlocked ? 'Unblock' : 'Block'} this user?`)) {
-                await db.collection('users').doc(uid).update({ status: status });
+        async function toggleBlock(uid, currentStatus) {
+            const newStatus = currentStatus === 'blocked' ? 'active' : 'blocked';
+            if(confirm(`Are you sure you want to change user status to ${newStatus}?`)) {
+                await database.ref('users/' + uid).update({ status: newStatus });
             }
         }
     </script>
